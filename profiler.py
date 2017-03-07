@@ -22,11 +22,6 @@ class color:
 def indent(text, **kwargs):
 	return textwrap.fill(text, subsequent_indent='\t', **kwargs)
 
-def write_to_file():
-	with open('search_results.html', 'wb') as results_html:
-		for chunk in search_resp.iter_content(100000):
-			results_html.write(chunk)
-
 def all_combinations(name_list):
 	name_combinations = []
 	for i in range(0, len(name_list)+1):
@@ -94,12 +89,53 @@ def set_action(browser_choice):
 
 	return action
 
+def search_for_comb(arg_names):
+	names = ' '.join(arg_names)
+	search_query = 'http://google.com/search?q=' + names
+	print('Search query: ', search_query)
+	print()
+	valid_comb_links ={}
+
+	search_resp = requests.get(search_query)
+	if valid_response(search_resp):
+		#search_text = search_resp.text
+		#print(search_text.prettify())
+		souped_text = bs4.BeautifulSoup(search_resp.text, 'html.parser')
+
+		top_links = souped_text.select('.r a')
+		cited_links = souped_text.select('cite')
+		gl_links = souped_text.select('.gl')
+
+		valid_comb_links = get_lists(top_links, cited_links, gl_links)
+
+	return valid_comb_links
+
+def search_for_comb_fake_files(arg_names):
+	names = ' '.join(arg_names)
+	print()
+	valid_comb_links ={}
+
+	#search_text = search_resp.text
+	#print(search_text.prettify())
+
+	file_name = names + '.html'
+	open_file = open(file_name, 'r', encoding='ISO-8859-1').read()
+	souped_text = bs4.BeautifulSoup(open_file, 'html.parser')
+
+	top_links = souped_text.select('.r a')
+	cited_links = souped_text.select('cite')
+	gl_links = souped_text.select('.gl')
+
+	valid_comb_links = get_lists(top_links, cited_links, gl_links)
+
+	return valid_comb_links
+
 # Supported browsers
 browsers = ['chrome', 'chromium', 'firefox', 'default']
 
 # Parse terminal arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-o', '--open', help='Open links in browser', nargs='?', choices=browsers)
+parser.add_argument('-o', '--open', help='Open links in specified browser', nargs='?', choices=browsers)
 parser.add_argument('name', help='User name(s) to use in search', nargs='+')
 
 
@@ -125,40 +161,31 @@ if len(sys.argv) > 1:
 	print()
 	#print(names)
 	search_engine = 'http://google.com'
-	search_query = 'http://google.com/search?q=' + names
-	print('Search query: ', search_query)
-	print()
+	valid_links = {}
+	for two_names in name_combs:
+		comb_result = search_for_comb(two_names)
+		if comb_result: valid_links.update(comb_result)
 
-	search_resp = requests.get(search_query)
-	if valid_response(search_resp):
-		search_text = search_resp.text
-		#print(search_text.prettify())
-		souped_text = bs4.BeautifulSoup(search_text, 'html.parser')
+	if not valid_links:
+		print(color.BLUE + 'No results found.' + color.END)
+	else:
+		deduplified_links ={}
+		for i,v in valid_links.items():
+			if v not in deduplified_links.values():
+				deduplified_links[i] = v
 
-		top_links = souped_text.select('.r a')
-		cited_links = souped_text.select('cite')
-		gl_links = souped_text.select('.gl')
+		for i,v in deduplified_links.items():
+			print(i, '-', v)
 
-		valid_links = get_lists(top_links, cited_links, gl_links)
+		#print(bool(options['open']))
+		if options['open'] is not None:
+			print('Opening links')
+			for i in deduplified_links:
+				try:
+					action(search_engine + deduplified_links[i][1])
+				except TypeError:
+					print(color.RED + 'Link skipped: %s' % deduplified_links[i][0] + color.END)
 
-		if not valid_links:
-			print(color.BLUE + 'No results found.' + color.END)
-		else:
-			print('Showing valid links')
-			for i in valid_links:
-				print(valid_links[i][0])
-				print(valid_links[i][1])
-				print()
-
-			#print(bool(options['open']))
-			if options['open'] is not None:
-				print('Opening links')
-				for i in valid_links:
-					try:
-						action(search_engine + valid_links[i][1])
-					except TypeError:
-						print(color.RED + 'Link skipped: %s' % valid_links[i][0] + color.END)
-						pass
 else:
 	print('\n' + color.RED + 'Command incomplete. No arguments found' + color.END + '\n')
-	parser.print_help()	
+	parser.print_help()
