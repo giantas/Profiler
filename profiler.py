@@ -68,32 +68,55 @@ def valid_response(resp):
 		print(indent('Link ' + color.DARKCYAN + resp.url + color.END + ' works'))
 		return True
 
+def set_browser(path):
+	if os.path.isfile(path):
+		return webbrowser.get(path).open
+	else:
+		print('Failed to locate: %s' % path)
+		return webbrowser.open
+
+def set_action(browser_choice):
+	firefox_path = '/usr/bin/firefox'
+	chrome_path = '/usr/bin/google-chrome'
+	chromium_path = '/usr/bin/chromium'
+	opera_path = '/usr/bin/opera'
+
+	if browser_choice == 'chrome':
+		action = set_browser(chrome_path)
+	elif browser_choice == 'firefox':
+		action = set_browser(firefox_path)
+	elif browser_choice == 'chromium':
+		action = set_browser(chromium_path)
+	elif browser_choice == 'default':
+		action = webbrowser.open
+	else:
+		action = webbrowser.open
+
+	return action
+
+# Supported browsers
+browsers = ['chrome', 'chromium', 'firefox', 'default']
+
 # Parse terminal arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('-o', '--open', help='Open links in browser', nargs='?')
+parser.add_argument('-o', '--open', help='Open links in browser', nargs='?', choices=browsers)
 parser.add_argument('name', help='User name(s) to use in search', nargs='+')
 
 
 if len(sys.argv) > 1:
-	firefox_path = '/usr/bin/firefox'
-	chrome_path = '/usr/bin/google-chrome'
 	options = vars(parser.parse_args())
 	# TODO: Specify behaviour if no arguments passed
 
 	print()
 	#print(options['open'])
 	#print(options['name'])
-	action = webbrowser.open
+	#action = webbrowser.open
 
-	if options['open'] == 'chrome':
-		action = webbrowser.get(chrome_path).open #print('Chrome path: ', chrome_path)
-	elif options['open'] == 'firefox':
-		action = webbrowser.get(firefox_path).open
-	elif options['open'] == 'default':
-		print('Will open using default browser')
+	if options['open']:
+		action = set_action(options['open'])
 	else:
-		action = webbrowser.open
 		print('Browser not specified. Using default')
+		action = webbrowser.open
 
 	name_list = options['name']
 	names = ' '.join(name_list)
@@ -118,18 +141,24 @@ if len(sys.argv) > 1:
 
 		valid_links = get_lists(top_links, cited_links, gl_links)
 
-		print('Showing valid links')
-		for i in valid_links:
-			print(valid_links[i][0])
-			print(valid_links[i][1])
-			print()
-
-		#print(bool(options['open']))
-		if options['open'] is not None:
-			print('Opening links')
+		if not valid_links:
+			print(color.BLUE + 'No results found.' + color.END)
+		else:
+			print('Showing valid links')
 			for i in valid_links:
-				action(search_engine + valid_links[i][1])
+				print(valid_links[i][0])
+				print(valid_links[i][1])
+				print()
 
+			#print(bool(options['open']))
+			if options['open'] is not None:
+				print('Opening links')
+				for i in valid_links:
+					try:
+						action(search_engine + valid_links[i][1])
+					except TypeError:
+						print(color.RED + 'Link skipped: %s' % valid_links[i][0] + color.END)
+						pass
 else:
 	print('\n' + color.RED + 'Command incomplete. No arguments found' + color.END + '\n')
 	parser.print_help()	
