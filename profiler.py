@@ -30,7 +30,7 @@ class BrowseMe(object):
 	opera_path = '/usr/bin/opera'
 	search_engine = 'http://google.com'
 
-	def __init__(self, name_list, view, common_term, browser=None):
+	def __init__(self, name_list, name_count, view, common_term, browser=None):
 		"""Initialise the browser, user name(s) and valid_links."""
 
 		if browser is not None:
@@ -42,6 +42,12 @@ class BrowseMe(object):
 			self.common_term = common_term[0]
 		else:
 			self.common_term = common_term
+
+		if name_count is not None:
+			self.name_count = name_count[0]
+		else:
+			self.name_count = 2
+
 		self.names_list = name_list
 		self.names = ' '.join(self.names_list)
 		self.view = view
@@ -57,31 +63,30 @@ class BrowseMe(object):
 	def all_combinations(self, name_list=None):
 		"""Find all possible combinations of names specified.
 
-		Limited to two-names results.
+		Defaults to two-names results.
 
 		"""
+		
 		if name_list is None:
 			name_list = self.names_list
 
-		name_combinations = []
-		for i in range(0, len(name_list)+1):
-			for subset in itertools.combinations(name_list, i):
-				name_combinations.append(subset)
+		if len(name_list) == 1:
+			return [(name_list[0],)]
 
-		start = len(name_list)+1
-		forward_list = [result for result in name_combinations[start:] if len(result) == 2]
-		backward_list = [(item[1], item[0]) for item in forward_list[::-1]]
-		return forward_list + backward_list
+		return list(itertools.permutations(name_list, self.name_count))
 
 	def find_links(self, valid_links, links_list):
 		"""Find links that match user name provided."""
 
+		# TODO: Add support for third name search in regex
 		name_combs = self.all_combinations()
 		for count, item in enumerate(links_list):
 			if count not in valid_links:
 				for names in name_combs:
-					#print('Names: ',names[0], names[1])
-					name_regex = r'.*' + str(names[0]) + r'[\s\-\.]{0,1}' + str(names[1]) + r'.*'
+					try:
+						name_regex = r'.*' + str(names[0]) + r'[\s\-\.]{0,1}' + str(names[1]) + r'.*'
+					except IndexError:
+						name_regex = r'.*' + str(names[0]) + r'[\s\-\.]{0,1}' + r'.*'
 					if re.match(name_regex, str(item.get_text()), re.I) is not None:
 						valid_links[count] = [item.get_text(),  item.get('href')]
 
@@ -211,7 +216,10 @@ class BrowseMe(object):
 		if self.view:
 			for key, value in self.valid_links.items():
 				print(int(key)+1, '-', self.indent(value[0]))
-				print('\t' + str(value[1]))
+				if value[1] is None:
+					print('\t' + value[0])
+				else:
+					print('\t' + self.search_engine + str(value[1]))
 				print()
 
 		return
@@ -225,11 +233,15 @@ class BrowseMe(object):
 
 		new_string = string.replace('/url?q=', '')
 		parsed_url = urlparse(new_string)
-		return '.'.join(parsed_url.hostname.split('.')[1:])
+		try:
+			domain = '.'.join(parsed_url.hostname.split('.')[1:])
+		except AttributeError:
+			domain = new_string # For Google image search
+		return domain
 
 
 	def deduplify_domain(self, links_dict):
-		"""Remove duplicate links."""
+		"""Remove duplicate domain links."""
 
 		deduplified = {}
 		for i,v in links_dict.items():
@@ -253,19 +265,33 @@ if __name__ == '__main__':
 	# Supported browsers
 	browsers = ['chrome', 'chromium', 'firefox', 'default']
 
+	class CountAction(argparse.Action):
+
+		def __call__(self, parser, namespace, values, option_string):
+			if values[0] < 1:
+				parser.error('Count cannot be less than 1.')
+
+			setattr(namespace, self.dest, values)
+
 	# Parse terminal arguments
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-o', '--open', help='Open links in specified browser', nargs=1, choices=browsers)
-	parser.add_argument('-v', '--view', help='View links in terminal', action='store_true')
-	parser.add_argument('-c', '--common', help='Common term(s) to use in search. Joined by underscore', nargs=1)
 	parser.add_argument('name', help='User name(s) to use in search', nargs='+')
+	parser.add_argument('-c', '--count', help='The number of names to include in search. Default is 2.', action=CountAction, nargs=1, type=int)
+	parser.add_argument('-v', '--view', help='View links in terminal', action='store_true')
+	parser.add_argument('-t', '--term', help='Common term(s) to use in search. Joined by underscore', nargs=1)
+	parser.add_argument('-o', '--open', help='Open links in specified browser', nargs=1, choices=browsers)
 
 	if len(sys.argv) > 1:
 		options = vars(parser.parse_args())
 
-		me = BrowseMe(options['name'], options['view'], options['common'], options['open'])
+		names_num = len(options['name'])
+		if options['count'] and options['count'][0] > names_num:
+			raise parser.error('Count cannot be greater than the number of names, %s here.' % names_num)
+
+		me = BrowseMe(options['name'], options['count'], options['view'], options['term'], options['open'])
+
+		# TODO: Add support for Google's "No result found for ... Showing for ...". 
 		me.do_search()
-		#print(options['common'])
 
 	else:
 		print('\n' + color.RED + 'Command incomplete. No arguments found' + color.END + '\n')
