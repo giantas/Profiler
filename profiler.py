@@ -30,7 +30,7 @@ class BrowseMe(object):
 	opera_path = '/usr/bin/opera'
 	search_engine = 'http://google.com'
 
-	def __init__(self, name_list, name_count, view, common_term, browser=None):
+	def __init__(self, name_list, name_count, view, interactive, common_term, browser=None):
 		"""Initialise the browser, user name(s) and valid_links."""
 
 		if browser is not None:
@@ -51,6 +51,7 @@ class BrowseMe(object):
 		self.names_list = name_list
 		self.names = ' '.join(self.names_list)
 		self.view = view
+		self.interactive = interactive
 		self.valid_links = {}
 		self.netlocs = []
 		#self.name_combinations = self.all_combinations()
@@ -66,14 +67,18 @@ class BrowseMe(object):
 		Defaults to two-names results.
 
 		"""
-		
+
 		if name_list is None:
 			name_list = self.names_list
 
 		if len(name_list) == 1:
 			return [(name_list[0],)]
 
-		return list(itertools.permutations(name_list, self.name_count))
+		name_combinations = []
+		for i in range(2, self.name_count +1):
+			name_combinations += list(itertools.permutations(name_list, i))
+
+		return name_combinations
 
 	def find_links(self, valid_links, links_list):
 		"""Find links that match user name provided."""
@@ -107,7 +112,7 @@ class BrowseMe(object):
 			print(self.indent('There was a problem with ' + color.RED + resp.url + color.END + ' %s' % excptn))
 			return False
 		else:
-			print(self.indent('Link ' + color.DARKCYAN + resp.url + color.END + ' works'))
+			self.interactive and print(color.DARKCYAN + '----{0}--- OK'.format(resp.url) + color.END)
 			return True
 
 	def set_browser(self, path):
@@ -135,6 +140,9 @@ class BrowseMe(object):
 
 	def do_search(self, name_combs=None):
 		"""Initialise search."""
+
+		print('\n{:-^60}'.format('\nInitiating.\n'))
+		print('Searching...\n')
 		if name_combs is None:
 			name_combs = self.all_combinations(self.names_list)
 
@@ -148,15 +156,13 @@ class BrowseMe(object):
 			print(color.BLUE + '%s result(s) found. Add "-v" to view.' % len(self.valid_links) + color.END)
 			if self.browser is not None:
 				self.open_links()
-			else:
-				self.print_links()
+			self.view and self.print_links()
 
 	def search_names(self, two_names):
 		common_term = self.common_term or ''
 		names = two_names
 		search_query = 'http://google.com/search?q=' + names + ' ' + ' '.join(common_term.split('_'))
-		print('Search query: ', search_query)
-		print()
+		self.interactive and print('Search query: ', search_query)
 		valid_comb_links ={}
 
 		search_resp = requests.get(search_query)
@@ -195,7 +201,7 @@ class BrowseMe(object):
 		if links_list is None:
 			links_list = self.valid_links
 
-		print('Opening links...')
+		print('\nOpening links...\n')
 		for i in links_list:
 			try:
 				action(self.search_engine + links_list[i][1])
@@ -214,12 +220,11 @@ class BrowseMe(object):
 
 	def print_links(self):
 		if self.view:
-			for key, value in self.valid_links.items():
-				print(int(key)+1, '-', self.indent(value[0]))
-				if value[1] is None:
-					print('\t' + value[0])
+			for count, value in enumerate(self.valid_links.items(), 1):
+				if value[1][1] is None:
+					print('\n{0} - {1}'.format(str(count), value[1][0]))
 				else:
-					print('\t' + self.search_engine + str(value[1]))
+					print('\n{0} - {1}\n{2}{3}'.format(str(count), str(value[1][0]), self.search_engine, str(value[1][1])))
 				print()
 
 		return
@@ -268,18 +273,19 @@ if __name__ == '__main__':
 	class CountAction(argparse.Action):
 
 		def __call__(self, parser, namespace, values, option_string):
-			if values[0] < 1:
-				parser.error('Count cannot be less than 1.')
+			if values[0] < 2:
+				parser.error('Count cannot be less than 2.')
 
 			setattr(namespace, self.dest, values)
 
 	# Parse terminal arguments
 	parser = argparse.ArgumentParser()
-	parser.add_argument('name', help='User name(s) to use in search', nargs='+')
+	parser.add_argument('name', help='User name(s) to use in search.', nargs='+')
 	parser.add_argument('-c', '--count', help='The number of names to include in search. Default is 2.', action=CountAction, nargs=1, type=int)
-	parser.add_argument('-v', '--view', help='View links in terminal', action='store_true')
-	parser.add_argument('-t', '--term', help='Common term(s) to use in search. Joined by underscore', nargs=1)
-	parser.add_argument('-o', '--open', help='Open links in specified browser', nargs=1, choices=browsers)
+	parser.add_argument('-v', '--view', help='View links in terminal.', action='store_true')
+	parser.add_argument('-t', '--term', help='Common term(s) to use in search. Joined by underscore.', nargs=1)
+	parser.add_argument('-o', '--open', help='Open links in specified browser.', nargs=1, choices=browsers)
+	parser.add_argument('-i', '--interactive', help='Display messages.', action="store_true")
 
 	if len(sys.argv) > 1:
 		options = vars(parser.parse_args())
@@ -288,10 +294,12 @@ if __name__ == '__main__':
 		if options['count'] and options['count'][0] > names_num:
 			raise parser.error('Count cannot be greater than the number of names, %s here.' % names_num)
 
-		me = BrowseMe(options['name'], options['count'], options['view'], options['term'], options['open'])
+		me = BrowseMe(options['name'], options['count'], options['view'], options['interactive'], options['term'], options['open'])
 
 		# TODO: Add support for Google's "No result found for ... Showing for ...". 
 		me.do_search()
+
+		print('{:-^60}\n'.format('\nDone.\n'))
 
 	else:
 		print('\n' + color.RED + 'Command incomplete. No arguments found' + color.END + '\n')
