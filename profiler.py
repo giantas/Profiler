@@ -30,7 +30,8 @@ class BrowseMe(object):
 	opera_path = '/usr/bin/opera'
 	search_engine = 'http://google.com'
 
-	def __init__(self, name_list, name_count, view, interactive, common_term, browser=None):
+	# FIX: Name_list should not be none
+	def __init__(self, name_list=None, name_count=None, view=None, interactive=None, common_term=None, browser=None, search_engine=None):
 		"""Initialise the browser, user name(s) and valid_links."""
 
 		if browser is not None:
@@ -48,13 +49,17 @@ class BrowseMe(object):
 		else:
 			self.name_count = 2
 
+		if isinstance(search_engine, list):
+			self.search_engine = 'http://' + search_engine[0].lower() + '.com'
+		else:
+			self.search_engine = 'http://google.com'
+
 		self.names_list = name_list
 		self.names = ' '.join(self.names_list)
 		self.view = view
 		self.interactive = interactive
 		self.valid_links = {}
 		self.netlocs = []
-		#self.name_combinations = self.all_combinations()
 		
 	def indent(self, text, **kwargs):
 		"""Use textwrap to indent output by one tab key."""
@@ -158,39 +163,39 @@ class BrowseMe(object):
 				self.open_links()
 			self.view and self.print_links()
 
+	def search_tags(self, search_engine=None):
+		tags = []
+		if search_engine is None:
+			search_engine = self.search_engine
+
+		if search_engine == 'http://bing.com':
+			tags.append('cite')
+		else: # search_engine == Google
+			tags.append('.r a')
+			tags.append('cite')
+			tags.append('.gl')
+		return tags
+
+	def soup_links(self, souped_text, tags):
+		souped_links = []
+		for tag in tags:
+			souped_links.append(souped_text.select(tag))
+		return souped_links
+
 	def search_names(self, two_names):
+		valid_comb_links ={}
 		common_term = self.common_term or ''
 		names = two_names
-		search_query = 'http://google.com/search?q=' + names + ' ' + ' '.join(common_term.split('_'))
+		search_query = self.search_engine + '/search?q=' + names + ' ' + ' '.join(common_term.split('_'))
 		self.interactive and print('Search query: ', search_query)
-		valid_comb_links ={}
 
 		search_resp = requests.get(search_query)
 		if self.valid_response(search_resp):
 			souped_text = bs4.BeautifulSoup(search_resp.text, 'html.parser')
 
-			top_links = souped_text.select('.r a')
-			cited_links = souped_text.select('cite')
-			gl_links = souped_text.select('.gl')
-
-			valid_comb_links = self.get_lists(top_links, cited_links, gl_links)
-
-		return self.deduplify_domain(valid_comb_links)
-
-	def search_names_from_files(self, two_names):
-		names = two_names
-		print()
-		valid_comb_links ={}
-
-		file_name = names + '.html'
-		open_file = open(file_name, 'r', encoding='ISO-8859-1').read()
-		souped_text = bs4.BeautifulSoup(open_file, 'html.parser')
-
-		top_links = souped_text.select('.r a')
-		cited_links = souped_text.select('cite')
-		gl_links = souped_text.select('.gl')
-
-		valid_comb_links = self.get_lists(top_links, cited_links, gl_links)
+			search_tags = self.search_tags()
+			souped_links = self.soup_links(souped_text, search_tags)
+			valid_comb_links = self.get_lists(*souped_links)
 
 		return self.deduplify_domain(valid_comb_links)
 
@@ -248,27 +253,33 @@ class BrowseMe(object):
 	def deduplify_domain(self, links_dict):
 		"""Remove duplicate domain links."""
 
-		deduplified = {}
-		for i,v in links_dict.items():
-
-			if v[1] is not None:
-				clear_item = self.clear_path(v[1])
+		def deduplify_item(i, v, v_link, deduplified):
+			if v_link is not None:
+				clear_item = self.clear_path(v_link)
 
 				if clear_item not in self.netlocs:
 					self.netlocs.append(clear_item)
-					if v not in deduplified.values(): deduplified[i] = v
+					if v not in deduplified.values():
+						deduplified[i] = v
 
-				else:
-					pass
 			else:
 				if v not in deduplified.values(): deduplified[i] = v
-			
+
+		deduplified = {}
+		for i,v in links_dict.items():
+			if self.search_engine == 'http://google.com':
+				deduplify_item(i, v, v[1], deduplified)
+			if self.search_engine == 'http://bing.com':
+				deduplify_item(i, v, v[0], deduplified)
+				
+
 		return deduplified
 
 
 if __name__ == '__main__':
 	# Supported browsers
 	browsers = ['chrome', 'chromium', 'firefox', 'default']
+	engines = ['google', 'bing']
 
 	class CountAction(argparse.Action):
 
@@ -286,6 +297,7 @@ if __name__ == '__main__':
 	parser.add_argument('-t', '--term', help='Common term(s) to use in search. Joined by underscore.', nargs=1)
 	parser.add_argument('-o', '--open', help='Open links in specified browser.', nargs=1, choices=browsers)
 	parser.add_argument('-i', '--interactive', help='Display messages.', action="store_true")
+	parser.add_argument('-e', '--engine', help='Search engine to use.', nargs=1, choices=engines)
 
 	if len(sys.argv) > 1:
 		options = vars(parser.parse_args())
@@ -294,11 +306,13 @@ if __name__ == '__main__':
 		if options['count'] and options['count'][0] > names_num:
 			raise parser.error('Count cannot be greater than the number of names, %s here.' % names_num)
 
-		me = BrowseMe(options['name'], options['count'], options['view'], options['interactive'], options['term'], options['open'])
+		me = BrowseMe(options['name'], options['count'], options['view'], options['interactive'], options['term'], options['open'], options['engine'])
 
 		# TODO: Add support for Google's "No result found for ... Showing for ...". 
+		# TODO: Add blacklisting option
+		# TODO: Add profile report generation
+		# TODO: Add terminal interaction
 		me.do_search()
-
 		print('{:-^60}\n'.format('\nDone.\n'))
 
 	else:
